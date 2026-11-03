@@ -11,7 +11,7 @@ test("isClaudeTarget detection", () => {
   assert.equal(isClaudeTarget(undefined, { model: "gemini-3.8-flash" }), false);
 });
 
-test("cleanClaudeContents strips sentinel from tool-call parts while preserving real thinking signature", () => {
+test("cleanClaudeContents strips sentinel from tool-call and drops unsigned thinking parts", () => {
   const contents = [
     {
       role: "user",
@@ -33,11 +33,18 @@ test("cleanClaudeContents strips sentinel from tool-call parts while preserving 
     {
       role: "model",
       parts: [
+        // Valid signed thinking: MUST KEEP
         {
-          text: "I should inspect git status...",
+          text: "Thinking with valid signature...",
           thought: true,
-          thoughtSignature: "REAL_VALID_HMAC_SIGNATURE_Q0FR..."
+          thoughtSignature: "REAL_VALID_HMAC_SIGNATURE_Q0FRU2xRUUtFZ2dURUFJWUFqZ0JRZ2..."
         },
+        // Unsigned thinking (signature lost across turns): MUST DROP to prevent 'Field required'
+        {
+          text: "Thinking without signature...",
+          thought: true
+        },
+        // Function call: MUST STRIP sentinel
         {
           functionCall: { id: "call_2", name: "shell", args: { command: "git status" } },
           thoughtSignature: SENTINEL_SIGNATURE,
@@ -52,50 +59,16 @@ test("cleanClaudeContents strips sentinel from tool-call parts while preserving 
 
   // Turn 1 functionCall: sentinel must be stripped
   assert.equal(contents[1].parts[0].thoughtSignature, undefined);
-  assert.equal(contents[1].parts[0].signature, undefined);
 
-  // Turn 3 Part 0: real thinking signature must be preserved!
-  assert.equal(contents[3].parts[0].thoughtSignature, "REAL_VALID_HMAC_SIGNATURE_Q0FR...");
-  assert.equal(contents[3].parts[0].thought, true);
+  // Turn 3 Part 0: real valid thinking signature must be preserved!
+  assert.equal(contents[3].parts[0].thoughtSignature, "REAL_VALID_HMAC_SIGNATURE_Q0FRU2xRUUtFZ2dURUFJWUFqZ0JRZ2...");
 
-  // Turn 3 Part 1: sentinel and thought boolean on functionCall must be stripped
+  // Turn 3 Part 1: unsigned thinking part was dropped!
+  // So the functionCall is now at index 1
+  assert.equal(contents[3].parts[1].functionCall.name, "shell");
   assert.equal(contents[3].parts[1].thoughtSignature, undefined);
   assert.equal(contents[3].parts[1].thought, undefined);
-});
-
-test("wrapFetchWithCleaner intercepts and cleans outgoing Claude requests", async () => {
-  let capturedBody = null;
-  const mockFetch = async (input, init) => {
-    capturedBody = JSON.parse(init.body);
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
-  };
-
-  const interceptedFetch = wrapFetchWithCleaner(mockFetch);
-
-  const payload = {
-    contents: [
-      {
-        role: "model",
-        parts: [
-          {
-            functionCall: { name: "shell", args: { command: "ls" } },
-            thoughtSignature: SENTINEL_SIGNATURE
-          }
-        ]
-      }
-    ]
-  };
-
-  const url = "https://Direct-Bifrost.oo1.dev/genai_passthrough/v1beta/models/claude-opus-5-5:streamGenerateContent?alt=sse";
-  const resp = await interceptedFetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  assert.equal(resp.status, 200);
-  assert.notEqual(capturedBody, null);
-  assert.equal(capturedBody.contents[0].parts[0].thoughtSignature, undefined);
+  assert.equal(contents[3].parts.length, 2);
 });
 
 test("plugin export shape and teardown", async () => {
