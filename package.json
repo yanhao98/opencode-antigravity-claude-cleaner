@@ -1,0 +1,43 @@
+{
+  "name": "opencode-antigravity-claude-cleaner",
+  "version": "1.0.0",
+  "description": "Standard OpenCode plugin to strip synthetic thought signatures from Claude function calls on Antigravity/Gemini wire protocol, preventing Vertex AI 400 invalid signature errors.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "test": "node --test test/cleaner.test.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "claude",
+    "antigravity",
+    "gemini",
+    "thought-signature"
+  ],
+  "author": "yanhao98",
+  "license": "MIT",
+  "dependencies": {
+    "@ai-sdk/google": "^3.0.137"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.8.2"
+  }
+}
