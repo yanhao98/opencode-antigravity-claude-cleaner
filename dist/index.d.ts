@@ -1,14 +1,9 @@
+import { Plugin } from "@opencode/plugin";
 import { isClaudeTarget, cleanClaudeContents, wrapFetchWithCleaner, SENTINEL_SIGNATURE } from "./cleaner.js";
-import type { OpenCodePluginContext } from "./types.js";
 export { isClaudeTarget, cleanClaudeContents, wrapFetchWithCleaner, SENTINEL_SIGNATURE };
 /**
- * Standard OpenCode V2 Plugin definition
+ * Standard OpenCode V2 Plugin definition adhering to https://opencode.ai/v2/docs/build/plugins
  */
-export declare const AntigravityClaudeCleanerPlugin: {
-    id: string;
-    name: string;
-    version: string;
-    setup(ctx: OpenCodePluginContext): Promise<() => void>;
-};
-export default AntigravityClaudeCleanerPlugin;
+declare const _default: Plugin.Plugin;
+export default _default;
 //# sourceMappingURL=index.d.ts.map

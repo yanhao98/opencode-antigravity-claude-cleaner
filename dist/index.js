@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { Plugin } from "@opencode/plugin";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { isClaudeTarget, cleanClaudeContents, wrapFetchWithCleaner, SENTINEL_SIGNATURE } from "./cleaner.js";
+import { isClaudeTarget, cleanClaudeContents, wrapFetchWithCleaner, SENTINEL_SIGNATURE, } from "./cleaner.js";
 export { isClaudeTarget, cleanClaudeContents, wrapFetchWithCleaner, SENTINEL_SIGNATURE };
 const require = createRequire(import.meta.url);
 const SDK_PACKAGE = typeof import.meta.resolve === "function"
@@ -10,12 +11,10 @@ const SDK_PACKAGE = typeof import.meta.resolve === "function"
 const GOOGLE_PACKAGE = `aisdk:${SDK_PACKAGE}`;
 const PROVIDER_ID = "google";
 /**
- * Standard OpenCode V2 Plugin definition
+ * Standard OpenCode V2 Plugin definition adhering to https://opencode.ai/v2/docs/build/plugins
  */
-export const AntigravityClaudeCleanerPlugin = {
+export default Plugin.define({
     id: "opencode-antigravity-claude-cleaner",
-    name: "Claude Antigravity Signature Cleaner",
-    version: "1.0.0",
     async setup(ctx) {
         const unregisterCallbacks = [];
         // 1. Hook global fetch as a universal fallback layer
@@ -66,6 +65,5 @@ export const AntigravityClaudeCleanerPlugin = {
             }
         };
     },
-};
-export default AntigravityClaudeCleanerPlugin;
+});
 //# sourceMappingURL=index.js.map

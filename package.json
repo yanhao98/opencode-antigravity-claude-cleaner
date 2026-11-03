@@ -34,7 +34,8 @@
   "author": "yanhao98",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/google": "^3.0.137"
+    "@ai-sdk/google": "^3.0.137",
+    "@opencode/plugin": "^2.2.5"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
