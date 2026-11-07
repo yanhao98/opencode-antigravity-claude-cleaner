@@ -4,21 +4,100 @@ An official standard OpenCode V2 plugin that resolves HTTP 400 (`messages.N.cont
 
 ---
 
-## 📖 Background & Problem
+## 📖 Background & Problems Solved
 
-When invoking Claude models configured under the `google` provider in OpenCode:
-1. **Round 1 (Initial tool call)** executes successfully.
-2. **Round 2 (Tool response replay)** fails with:
-   ```json
-   400 · {"type":"error","error":{"type":"invalid_request_error","message":"messages.3.content.0: Invalid `signature` in `thinking` block"},"request_id":"req_vrtx_..."}
-   ```
+When invoking Claude models configured under the `google` provider in OpenCode (such as through Google Cloud Code / Antigravity wire protocols), two critical compatibility bugs lead to HTTP 400 session aborts:
 
-### Root Cause
-OpenCode's internal Google provider serializer enforces Gemini 2.5/3.0 thought-signature validation bypass rules. When replaying a model turn containing a `tool-call` (`functionCall`), it hardcodes a synthetic sentinel:
+---
+
+### Problem 1: Synthetic Thought Signature Replay (`Invalid signature in thinking block`)
+
+#### Root Cause
+OpenCode's internal Google provider serializer enforces Gemini thought-signature bypass rules. When replaying a model turn containing a tool call (`functionCall`), it injects a synthetic sentinel:
 ```json
 "thoughtSignature": "skip_thought_signature_validator"
 ```
-While Google's native Gemini models accept this sentinel, Google Cloud Code PA routes Claude requests downstream to **Google Cloud Vertex AI Anthropic**. Vertex AI validates thinking signatures cryptographically and rejects the synthetic sentinel with HTTP 400.
+While Google's native Gemini models accept this sentinel, Antigravity routes Claude requests downstream to **Google Cloud Vertex AI Anthropic**. Vertex AI cryptographically validates thinking signatures and rejects the synthetic sentinel with:
+```json
+400 · {"type":"error","error":{"type":"invalid_request_error","message":"messages.3.content.0: Invalid `signature` in `thinking` block"},"request_id":"req_vrtx_..."}
+```
+**Fix**: The plugin strips `skip_thought_signature_validator` from `functionCall` parts and removes un-signed historical thinking blocks while preserving valid provider signatures.
+
+---
+
+### Problem 2: Duplicate Tool Result IDs on Multi-Part Tool Output (`unexpected tool_use_id found in tool_result blocks`)
+
+#### Root Cause
+When a tool (e.g. bash/shell) produces multiple output chunks—such as stdout followed by a failure exit code (`"Exited with code 1"`):
+1. OpenCode stores multiple content blocks under the tool result.
+2. In `@ai-sdk/google`, model IDs not matching `/gemini-/i` (such as `claude-opus-5-5`) fail Gemini 3 feature checks (`supportsFunctionResponseParts = false`).
+3. As a result, `@ai-sdk/google` runs its legacy loop (`appendLegacyToolResultParts`), creating a separate `functionResponse` part for each text chunk—**all stamped with the exact same `toolCallId`**.
+
+#### ❌ Before (Failing 400 Outgoing Payload):
+```json
+{
+  "role": "user",
+  "parts": [
+    {
+      "functionResponse": {
+        "id": "toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y",
+        "name": "shell",
+        "response": {
+          "name": "shell",
+          "content": "stepNo: integer().notNull()...
+"
+        }
+      }
+    },
+    {
+      "functionResponse": {
+        "id": "toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y",
+        "name": "shell",
+        "response": {
+          "name": "shell",
+          "content": "Exited with code 1"
+        }
+      }
+    }
+  ]
+}
+```
+
+When Google Antigravity converts this 1:1 into Anthropic Messages format, it sends two `tool_result` blocks with the identical `tool_use_id`. Anthropic strictly requires **every `tool_result` to correspond 1:1 to a `tool_use` in the previous message**, immediately rejecting with:
+```json
+400 · {"type":"error","error":{"type":"invalid_request_error","message":"messages.118.content.0: unexpected `tool_use_id` found in `tool_result` blocks: toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y. Each `tool_result` block must have a corresponding `tool_use` block in the previous message."},"request_id":"req_vrtx_..."}
+```
+
+#### ✅ After (Sanitized 200 Outgoing Payload):
+The plugin intercepts the outbound request and merges all `functionResponse` parts sharing the same ID into a single consolidated response with concatenated content:
+```json
+{
+  "role": "user",
+  "parts": [
+    {
+      "functionResponse": {
+        "id": "toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y",
+        "name": "shell",
+        "response": {
+          "name": "shell",
+          "content": "stepNo: integer().notNull()...
+Exited with code 1"
+        }
+      }
+    }
+  ]
+}
+```
+
+#### 💡 Why Merge Instead of Drop (Contrast with `opencode-antigravity-auth` / `LLM-API-Key-Proxy`):
+Prior projects like `NoeFabris/opencode-antigravity-auth` (ported from `Mirrowel/LLM-API-Key-Proxy`'s `_fix_tool_response_grouping`) deduplicate tool responses by **dropping subsequent occurrences**:
+```typescript
+// NoeFabris / LLM-API-Key-Proxy:
+if (respId && !collectedResponses.has(respId)) {
+  collectedResponses.set(respId, resp); // Subsequent duplicates are dropped!
+}
+```
+While dropping subsequent parts avoids the 400 error, it **silently discards** `Exited with code 1`, causing the LLM to falsely believe a failed shell command succeeded. `opencode-antigravity-claude-cleaner` merges the text content, preserving both the full command output and the non-zero exit code without violating Anthropic's 1:1 pairing rule.
 
 ---
 
