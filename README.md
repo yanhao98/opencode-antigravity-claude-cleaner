@@ -65,11 +65,17 @@ opencode plugin add github:yanhao98/opencode-antigravity-claude-cleaner
 npm install
 
 # Compile TypeScript
-npm run build
+npm run compile
 
 # Run unit tests
 npm test
 ```
+
+---
+
+## 🙏 Acknowledgements & Prior Art
+
+- **[NoeFabris/opencode-antigravity-auth](https://github.com/NoeFabris/opencode-antigravity-auth)** — Special thanks to NoeFabris for pioneering the OpenCode V2 `ctx.model.transform` and `ctx.aisdk.hook` bridge architecture to intercept and hook into the provider transport layer.
 
 ---
 
