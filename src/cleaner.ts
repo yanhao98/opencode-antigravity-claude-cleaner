@@ -80,6 +80,21 @@ export function cleanClaudeContents(contents?: GeminiContent[]): boolean {
       }
 
       // 3. Tool-result / functionResponse parts: merge duplicates sharing the same toolCallId
+      //
+      // Trigger: When OpenCode executes a shell tool producing stdout and a non-zero exit code,
+      // OpenCode stores multiple content blocks. @ai-sdk/google's appendLegacyToolResultParts emits
+      // separate functionResponse parts sharing the exact same toolCallId:
+      //
+      // Before (Fails Vertex AI Anthropic 1:1 validation with HTTP 400):
+      //   parts: [
+      //     { functionResponse: { id: "toolu_1", response: { content: "stdout..." } } },
+      //     { functionResponse: { id: "toolu_1", response: { content: "Exited with code 1" } } }
+      //   ]
+      //
+      // After (Sanitized, single 1:1 part with concatenated content):
+      //   parts: [
+      //     { functionResponse: { id: "toolu_1", response: { content: "stdout...\nExited with code 1" } } }
+      //   ]
       if (part.functionResponse) {
         const id = part.functionResponse.id;
         if (id && typeof id === "string") {
