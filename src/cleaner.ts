@@ -16,8 +16,8 @@ export function isClaudeTarget(urlStr?: string, bodyObj?: GeminiRequestBody): bo
 }
 
 /**
- * Cleans illegal thought signatures and un-signed historical thinking parts
- * from Gemini contents for Claude models.
+ * Cleans illegal thought signatures, un-signed historical thinking parts,
+ * and duplicate functionResponse parts from Gemini contents for Claude models.
  * 
  * Rules:
  * 1. functionCall parts must not carry thought signatures (strips skip_thought_signature_validator).
@@ -25,6 +25,12 @@ export function isClaudeTarget(urlStr?: string, bodyObj?: GeminiRequestBody): bo
  *    (e.g. lost across sessions or stripped by OpenCode storage) MUST be dropped,
  *    because Vertex AI Anthropic strictly validates thinking signatures and rejects
  *    unsigned thinking blocks with "messages.N.content.M.thinking.signature: Field required".
+ * 3. functionResponse parts sharing the same non-empty ID within a turn must be merged into one.
+ *    When a tool returns multiple output chunks (e.g. stdout + "Exited with code 1"),
+ *    @ai-sdk/google's fallback path (appendLegacyToolResultParts) pushes multiple functionResponse
+ *    blocks with the same toolCallId. Vertex AI Anthropic enforces strict 1:1 pairing between
+ *    tool_use and tool_result, rejecting duplicate tool_use_ids with:
+ *    "unexpected `tool_use_id` found in `tool_result` blocks: ... Each `tool_result` block must have a corresponding `tool_use` block in the previous message."
  */
 export function cleanClaudeContents(contents?: GeminiContent[]): boolean {
   if (!Array.isArray(contents)) return false;
@@ -34,6 +40,7 @@ export function cleanClaudeContents(contents?: GeminiContent[]): boolean {
     if (!turn || typeof turn !== "object" || !Array.isArray(turn.parts)) continue;
 
     const filteredParts: GeminiPart[] = [];
+    const seenFunctionResponses = new Map<string, GeminiPart>();
 
     for (const part of turn.parts) {
       if (!part || typeof part !== "object") continue;
@@ -69,6 +76,46 @@ export function cleanClaudeContents(contents?: GeminiContent[]): boolean {
         if (!sig || typeof sig !== "string" || sig.length < MIN_SIGNATURE_LENGTH || sig === SENTINEL_SIGNATURE) {
           modified = true;
           continue; // Strip unsigned thinking block!
+        }
+      }
+
+      // 3. Tool-result / functionResponse parts: merge duplicates sharing the same toolCallId
+      if (part.functionResponse) {
+        const id = part.functionResponse.id;
+        if (id && typeof id === "string") {
+          const existing = seenFunctionResponses.get(id);
+          if (existing && existing.functionResponse) {
+            const targetResp = (existing.functionResponse.response = existing.functionResponse.response || {});
+            const incomingResp = part.functionResponse.response || {};
+
+            const prevContent = targetResp.content ?? targetResp.output ?? targetResp.result ?? "";
+            const nextContent = incomingResp.content ?? incomingResp.output ?? incomingResp.result ?? "";
+
+            const prevStr = typeof prevContent === "string" ? prevContent : JSON.stringify(prevContent);
+            const nextStr = typeof nextContent === "string" ? nextContent : JSON.stringify(nextContent);
+
+            if (prevStr && nextStr) {
+              targetResp.content = `${prevStr}\n${nextStr}`;
+            } else {
+              targetResp.content = prevStr || nextStr;
+            }
+
+            if ("output" in targetResp && "content" in targetResp && targetResp.output !== targetResp.content) {
+              delete targetResp.output;
+            }
+            if ("result" in targetResp && "content" in targetResp && targetResp.result !== targetResp.content) {
+              delete targetResp.result;
+            }
+
+            if (incomingResp.error && !targetResp.error) {
+              targetResp.error = incomingResp.error;
+            }
+
+            modified = true;
+            continue; // Skip pushing this duplicate part!
+          } else {
+            seenFunctionResponses.set(id, part);
+          }
         }
       }
 

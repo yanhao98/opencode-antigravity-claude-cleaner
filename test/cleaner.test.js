@@ -71,6 +71,95 @@ test("cleanClaudeContents strips sentinel from tool-call and drops unsigned thin
   assert.equal(contents[3].parts.length, 2);
 });
 
+test("cleanClaudeContents merges duplicate functionResponse parts with identical ID into one", () => {
+  const contents = [
+    {
+      role: "model",
+      parts: [
+        {
+          functionCall: {
+            id: "toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y",
+            name: "shell",
+            args: { command: "grep something" }
+          }
+        }
+      ]
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            id: "toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y",
+            name: "shell",
+            response: {
+              name: "shell",
+              content: "stepNo: integer().notNull()"
+            }
+          }
+        },
+        {
+          functionResponse: {
+            id: "toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y",
+            name: "shell",
+            response: {
+              name: "shell",
+              content: "Exited with code 1"
+            }
+          }
+        }
+      ]
+    }
+  ];
+
+  const modified = cleanClaudeContents(contents);
+  assert.equal(modified, true);
+
+  // Turn 1 should now have only 1 merged functionResponse part
+  assert.equal(contents[1].parts.length, 1);
+  const mergedResp = contents[1].parts[0].functionResponse;
+  assert.equal(mergedResp.id, "toolu_vrtx_01PgKxrhDKH9f6bmmTdsGT2y");
+  assert.equal(mergedResp.name, "shell");
+  assert.equal(mergedResp.response.content, "stepNo: integer().notNull()\nExited with code 1");
+});
+
+test("cleanClaudeContents preserves distinct functionResponse parts with different IDs", () => {
+  const contents = [
+    {
+      role: "model",
+      parts: [
+        { functionCall: { id: "call_read_1", name: "read", args: { path: "a.ts" } } },
+        { functionCall: { id: "call_shell_2", name: "shell", args: { command: "ls" } } }
+      ]
+    },
+    {
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            id: "call_read_1",
+            name: "read",
+            response: { content: "content of a.ts" }
+          }
+        },
+        {
+          functionResponse: {
+            id: "call_shell_2",
+            name: "shell",
+            response: { content: "file1.txt\nfile2.txt" }
+          }
+        }
+      ]
+    }
+  ];
+
+  const modified = cleanClaudeContents(contents);
+  assert.equal(modified, false);
+  assert.equal(contents[1].parts.length, 2);
+  assert.equal(contents[1].parts[0].functionResponse.id, "call_read_1");
+  assert.equal(contents[1].parts[1].functionResponse.id, "call_shell_2");
+});
+
 test("plugin export shape and teardown", async () => {
   assert.equal(plugin.id, "opencode-antigravity-claude-cleaner");
   assert.equal(typeof plugin.setup, "function");
